@@ -1,0 +1,29 @@
+{
+  "name": "openbluelineeffect",
+  "version": "0.0.1",
+  "description": "Takes a video and produces the \"blue line\" effect similar to the TikTok filter.",
+  "author": "Syeerus",
+  "license": "GPL-3.0",
+  "scripts": {
+    "tsc": "tsc",
+    "build": "npm run tsc & nexe --verbose --target x64 --input src/index.js --output bin/openblueline",
+    "postbuild": "node scripts/post-build.js",
+    "build-win": "npm run tsc & nexe --verbose --target windows-x64 --input bin/index.js --output bin/openblueline",
+    "postbuild-win": "npm run postbuild",
+    "build-linux": "npm run tsc & nexe --verbose --target linux-x64 --input bin/index.js --output bin/openblueline",
+    "postbuild-linux": "npm run postbuild",
+    "build-macos": "npm run tsc & nexe --verbose --target macos-x64 --input bin/index.js --output bin/openblueline",
+    "postbuild-macos": "npm run postbuild",
+    "package": "node scripts/package.js"
+  },
+  "dependencies": {
+    "argparse": "^2.0.1",
+    "canvas": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/argparse": "^2.0.5",
+    "archiver": "^5.2.0",
+    "nexe": "^4.0.0-beta.16",
+    "typescript": "^4.1.3"
+  }
+}
