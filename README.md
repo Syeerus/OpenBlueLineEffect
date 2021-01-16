@@ -27,6 +27,9 @@ run the command:
 
 If you also want the files zipped, add the `--zip` argument to the command.
 
+If you just want to compile the Typescript files, run:
+
+`npm run tsc`
 
 ## License
 
