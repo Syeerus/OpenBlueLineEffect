@@ -19,7 +19,7 @@
  */
 
 const archiver = require('archiver');
-const fs = require('fs');
+const fs = require('fs-extra');
 const path = require('path');
 const { platform, argv } = require('process');
 
@@ -55,14 +55,16 @@ const options = {
  */
 const filesToCopy = [
     path.join(BIN_DIR, 'VERSION'),
-    path.join(BIN_DIR, 'LICENSE')
+    path.join(BIN_DIR, 'LICENSE'),
+    path.join(BIN_DIR, 'node_modules')
 ];
 
 /**
  * Files to append to the archiver if enabled.
  * @type {string[]}
  */
-const filesToZip = [];
+const filesToZip = [
+];
 
 // Process command line arguments.
 for (let i in ARGS) {
@@ -85,7 +87,7 @@ else {
 
 // Delete the previous dist directory.
 try {
-    fs.rmdirSync(DIST_DIR);
+    fs.rmSync(DIST_DIR, { recursive: true, force: true });
 }
 catch (err) {
     if (err.code !== 'ENOENT') {
@@ -101,24 +103,32 @@ fs.mkdirSync(DIST_DIR);
 for (let file of filesToCopy) {
     const dest = path.join(DIST_DIR, path.basename(file));
     filesToZip.push(dest);
-    console.log(`Copying "${file}" to "${dest}".`)
-    fs.copyFileSync(file, dest);
+    console.log(`Copying "${file}" to "${dest}".`);
+    fs.copySync(file, dest, { recursive: true });
 }
 
 // Zip the files.
 if (options.zip) {
     console.log('Zipping files.');
-    const version = fs.readFileSync(path.join(BIN_DIR, 'VERSION'), { encoding: 'utf-8' });
+    const version = fs.readFileSync(path.join(BIN_DIR, 'VERSION'), { encoding: 'ascii' });
     const zipFile = path.join(DIST_DIR, 'openblueline-' + version.replace(/\./g, '-') + '.zip');
-    const stream = fs.createWriteStream(zipFile);
-    stream.on('close', function() {
+    const output = fs.createWriteStream(zipFile);
+    output.on('close', function() {
         console.log(archive.pointer() + ' total bytes for zip file.');
     });
 
     const archive = archiver('zip', { zlib: 9 });
-    archive.pipe(stream);
+    archive.pipe(output);
 
     for (let file of filesToZip) {
-        archive.append(file, { name: path.basename(file) });
+        console.log(`Zipping file "${file}".`);
+        if (fs.lstatSync(file).isDirectory()) {
+            archive.directory(file, path.basename(file), { name: path.basename(file) });
+        }
+        else {
+            archive.file(file, { name: path.basename(file) });
+        }
     }
+
+    archive.finalize();
 }

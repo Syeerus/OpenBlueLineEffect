@@ -6,7 +6,7 @@
   "license": "GPL-3.0",
   "scripts": {
     "tsc": "tsc",
-    "build": "npm run tsc & nexe --verbose --target x64 --input src/index.js --output bin/openblueline",
+    "build": "npm run tsc & nexe --verbose --target x64 --input bin/index.js --output bin/openblueline",
     "postbuild": "node scripts/post-build.js",
     "build-win": "npm run tsc & nexe --verbose --target windows-x64 --input bin/index.js --output bin/openblueline",
     "postbuild-win": "npm run postbuild",
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/argparse": "^2.0.5",
     "archiver": "^5.2.0",
+    "fs-extra": "^9.0.1",
     "nexe": "^4.0.0-beta.16",
     "typescript": "^4.1.3"
   }
