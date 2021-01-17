@@ -393,6 +393,7 @@ export class BlueLineGenerator {
             case 'left': {
                 outputContext.moveTo(cropRect.Width, 0);
                 outputContext.lineTo(cropRect.Width, cropRect.Height);
+                break;
             }
             case 'right': {
                 outputContext.moveTo(cropRect.X, 0);
@@ -402,10 +403,12 @@ export class BlueLineGenerator {
             case 'up': {
                 outputContext.moveTo(0, cropRect.Height);
                 outputContext.lineTo(cropRect.Width, cropRect.Height);
+                break;
             }
             case 'down': {
                 outputContext.moveTo(0, cropRect.Y);
                 outputContext.lineTo(cropRect.Width, cropRect.Y);
+                break;
             }
         }
 
