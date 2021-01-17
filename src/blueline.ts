@@ -18,8 +18,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas, loadImage, JPEGStream, PNGStream, Canvas } from 'canvas';
 import * as child from 'child_process';
+import { RgbToHexString } from './color';
 import * as fs from 'fs';
 import { Rectangle, Size } from './geom';
 
@@ -99,7 +100,7 @@ export class BlueLineGenerator {
     /**
      * The default color of the blue line which is obviously blue.
      */
-    public static readonly DEFAULT_LINE_COLOR = new Uint8Array([]);
+    public static readonly DEFAULT_LINE_COLOR = new Uint8Array([0, 194, 203]);
 
     /**
      * The default length of the effect.
@@ -134,9 +135,42 @@ export class BlueLineGenerator {
     private frameImages: Buffer[];
 
     /**
+     * The canvas that does the freeze effect.
+     */
+    private effectCanvas: Canvas;
+
+    /**
+     * The canvas that gets output to FFmpeg. Basically just effectCanvas with a
+     * line.
+     */
+    private outputCanvas: Canvas;
+
+    /**
+     * The current frame being processed for output.
+     */
+    private currentFrameNum: number;
+
+    /**
+     * The FFmpeg process for output.
+     */
+    private ffmpegProc: child.ChildProcess;
+
+    /**
+     * The rectangle that crops the frames.
+     */
+    private cropRect: Rectangle;
+
+    /**
+     * The size the crop rectangle shrinks every frame.
+     */
+    private cropRectShrinkSize: Size;
+
+    /**
      * Function used for handling errors for asynchronous methods.
      */
     private errorHandler: Function;
+
+    private readonly bindedEffectErrorHandler = this.OnEffectError.bind(this);
 
     constructor(options: BlueLineGeneratorOptions, errorHandler: Function) {
         if (!options.input) {
@@ -202,6 +236,20 @@ export class BlueLineGenerator {
             { maxBuffer: this.options.maxBuffer, encoding: 'buffer' },
             this.OnFfmpegFramesOutputFinished.bind(this)
         );
+
+        this.currentFrameNum = 0;
+    }
+
+    /**
+     * Gets the next frame and increases the pointer.
+     * @returns Image buffer or null if no frames are left.
+     */
+    private GetNextFrame(): Buffer {
+        if (this.currentFrameNum >= this.frameImages.length) {
+            return null;
+        }
+
+        return this.frameImages[this.currentFrameNum++];
     }
 
     /**
@@ -241,7 +289,7 @@ export class BlueLineGenerator {
         }
 
         console.log('Frames extracted: ' + this.frameImages.length);
-        this.DoEffect();
+        this.DoEffect().catch(this.OnEffectError.bind(this));
     }
 
     /**
@@ -249,13 +297,10 @@ export class BlueLineGenerator {
      */
     private async DoEffect() {
         console.log('Creating effect...');
-
-        const canvas = createCanvas(0, 0);
-        const context = canvas.getContext('2d');
-        let ffmpegProc = child.execFile(
+        this.ffmpegProc = child.execFile(
             this.options.ffmpegPath,
             [
-                '-y',                                   // Overwrite output.
+                '-y',                                   // Overwrite existing output.
                 '-f', 'image2pipe',                     // Force input format.
                 '-r', this.options.fps.toString(),      // Force input framerate.
                 '-c:v', this.options.frameCodec,        // Input codec.
@@ -268,91 +313,152 @@ export class BlueLineGenerator {
             this.OnFfmpegEffectFinished.bind(this)
         );
 
-        // Binded error callback.
-        const bindedErrorCallback = this.OnEffectError.bind(this);
+        // Create the canvas for the effect.
+        this.effectCanvas = createCanvas(0, 0);
 
-        // How much the draw area shrinks per frame.
-        // Calculated when the dimensions of the frames are detmerined.
-        const cropRectShrinkSize = new Size();
+        // A second canvas with the line so we can restore after outputting.
+        this.outputCanvas = createCanvas(0, 0);
 
-        // The rectangle used for cropping the frame.
-        // Shrinks on each frame.
-        const cropRect = new Rectangle();
+        this.cropRect = new Rectangle();
+        this.cropRectShrinkSize = new Size();
 
-        for (let frame of this.frameImages) {
-            const image = await loadImage(frame);
-            if (canvas.width === 0) {
-                // Canvas size was invalid.
-                canvas.width = image.width;
-                canvas.height = image.height;
+        this.DoEffectSingleFrame(this.GetNextFrame());
+    }
 
-                cropRect.Size = new Size(image.width, image.height);
-                switch (this.options.lineDirection) {
-                    case 'left':
-                    case 'right': {
-                        cropRectShrinkSize.Width = Math.ceil(image.width / this.totalFrames);
-                        break;
-                    }
-                    case 'up':
-                    case 'down': {
-                        cropRectShrinkSize.Height = Math.ceil(image.height / this.totalFrames);
-                        break;
-                    }
-                }
-            }
+    /**
+     * Processes and outputs a single frame.
+     */
+    private async DoEffectSingleFrame(frame: Buffer) {
+        if (!frame) {
+            // Null frame, we're done here.
+            this.ffmpegProc.stdin.end();
+            return;
+        }
 
-            context.drawImage(
-                image,              // Image.
-                cropRect.X,         // Clip X.
-                cropRect.Y,         // Clip Y.
-                cropRect.Width,     // Clip width.
-                cropRect.Height,    // Clip height.
-                cropRect.X,         // Destination X.
-                cropRect.Y,         // Destination Y.
-                cropRect.Width,     // Destination width.
-                cropRect.Height     // Destination height.
-            );
+        console.info('Frame #' + this.currentFrameNum);
+        const effectContext = this.effectCanvas.getContext('2d');
+        const outputContext = this.outputCanvas.getContext('2d');
+        const cropRect = this.cropRect;
+        const cropRectShrinkSize = this.cropRectShrinkSize;
 
-            if (this.options.frameCodec === 'mjpeg') {
-                ffmpegProc.stdin.write(canvas.createJPEGStream().read(), bindedErrorCallback);
-            }
-            else {
-                ffmpegProc.stdin.write(canvas.createPNGStream().read(), bindedErrorCallback);
-            }
+        const image = await loadImage(frame);
+        if (this.effectCanvas.width === 0) {
+            // We can set the canvases to the proper size now.
+            this.effectCanvas.width = image.width;
+            this.effectCanvas.height = image.height;
+            this.outputCanvas.width = image.width;
+            this.outputCanvas.height = image.height;
 
+            // Set the stroke properties here because it resets when you set
+            // the canvas dimensions..
+            const lineColor = this.options.lineColor;
+            outputContext.strokeStyle = '#' + RgbToHexString(lineColor[0], lineColor[1], lineColor[2]);
+            outputContext.lineWidth = 8;
+            outputContext.shadowColor = outputContext.strokeStyle;
+            outputContext.shadowBlur = 15;
+
+            cropRect.Size = new Size(image.width, image.height);
             switch (this.options.lineDirection) {
-                case 'left': {
-                    cropRect.Width -= cropRectShrinkSize.Width;
-                    break;
-                }
+                case 'left':
                 case 'right': {
-                    cropRect.Width -= cropRectShrinkSize.Width;
-                    cropRect.X += cropRectShrinkSize.Width;
+                    cropRectShrinkSize.Width = Math.ceil(image.width / this.totalFrames);
                     break;
                 }
-                case 'up': {
-                    cropRect.Height -= cropRectShrinkSize.Height;
-                    break;
-                }
+                case 'up':
                 case 'down': {
-                    cropRect.Height -= cropRectShrinkSize.Height;
-                    cropRect.Y += cropRectShrinkSize.Height;
+                    cropRectShrinkSize.Height = Math.ceil(image.height / this.totalFrames);
                     break;
                 }
             }
         }
 
-        ffmpegProc.stdin.end();
+        effectContext.drawImage(
+            image,              // Image.
+            cropRect.X,         // Clip X.
+            cropRect.Y,         // Clip Y.
+            cropRect.Width,     // Clip width.
+            cropRect.Height,    // Clip height.
+            cropRect.X,         // Destination X.
+            cropRect.Y,         // Destination Y.
+            cropRect.Width,     // Destination width.
+            cropRect.Height     // Destination height.
+        );
+
+        // Clear the old context with the line, and redraw the other canvas.
+        outputContext.clearRect(0, 0, this.outputCanvas.width, this.outputCanvas.width);
+        outputContext.drawImage(this.effectCanvas, 0, 0);
+
+        outputContext.beginPath();
+        switch (this.options.lineDirection) {
+            case 'left': {
+                outputContext.moveTo(cropRect.Width, 0);
+                outputContext.lineTo(cropRect.Width, cropRect.Height);
+            }
+            case 'right': {
+                outputContext.moveTo(cropRect.X, 0);
+                outputContext.lineTo(cropRect.X, cropRect.Height);
+                break;
+            }
+            case 'up': {
+                outputContext.moveTo(0, cropRect.Height);
+                outputContext.lineTo(cropRect.Width, cropRect.Height);
+            }
+            case 'down': {
+                outputContext.moveTo(0, cropRect.Y);
+                outputContext.lineTo(cropRect.Width, cropRect.Y);
+            }
+        }
+
+        outputContext.closePath();
+        outputContext.stroke();
+
+        let stream: JPEGStream | PNGStream;
+        if (this.options.frameCodec === 'mjpeg') {
+            stream = this.outputCanvas.createJPEGStream({ quality: 100 });
+        }
+        else {
+            stream = this.outputCanvas.createPNGStream();
+        }
+
+        const instance = this;
+        stream.on('error', this.bindedEffectErrorHandler);
+        stream.on('close', function() {
+            instance.DoEffectSingleFrame(instance.GetNextFrame());
+        });
+
+        this.ffmpegProc.stdin.write(stream.read());
+
+        switch (this.options.lineDirection) {
+            case 'left': {
+                cropRect.Width -= cropRectShrinkSize.Width;
+                break;
+            }
+            case 'right': {
+                cropRect.Width -= cropRectShrinkSize.Width;
+                cropRect.X += cropRectShrinkSize.Width;
+                break;
+            }
+            case 'up': {
+                cropRect.Height -= cropRectShrinkSize.Height;
+                break;
+            }
+            case 'down': {
+                cropRect.Height -= cropRectShrinkSize.Height;
+                cropRect.Y += cropRectShrinkSize.Height;
+                break;
+            }
+        }
     }
 
     /**
      * Callback for when FFmpeg has finished producing the effect video.
      */
-    private OnFfmpegEffectFinished(error:child.ExecException, stdout: Buffer, stderr: Buffer) {
+    private OnFfmpegEffectFinished(error?:child.ExecException, stdout?: Buffer, stderr?: Buffer) {
         if (error) {
             this.errorHandler(error);
         }
 
+        this.ffmpegProc.stdin.end();
         console.log(`Output to "${this.options.output}"`);
     }
 
