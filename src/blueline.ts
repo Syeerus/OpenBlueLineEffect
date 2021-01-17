@@ -312,6 +312,7 @@ export class BlueLineGenerator {
             { encoding: 'binary' },
             this.OnFfmpegEffectFinished.bind(this)
         );
+        this.ffmpegProc.stdin.on('error', this.bindedEffectErrorHandler);
 
         // Create the canvas for the effect.
         this.effectCanvas = createCanvas(0, 0);
@@ -470,6 +471,7 @@ export class BlueLineGenerator {
      */
     private OnEffectError(error: Error) {
         if (error) {
+            this.ffmpegProc.stdin.end();
             this.errorHandler(error);
         }
     }
