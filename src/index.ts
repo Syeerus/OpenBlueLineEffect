@@ -22,8 +22,10 @@ import { ArgumentParser } from 'argparse';
 import { BlueLineGenerator } from './blueline';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as process from 'process';
 
-const VERSION_FILE = path.join(__dirname, 'VERSION');
+
+const VERSION_FILE = path.join(path.dirname(__dirname), 'VERSION');
 
 /**
  * Global error handler for asynchronous functions.
