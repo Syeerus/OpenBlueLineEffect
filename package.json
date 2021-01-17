@@ -1,6 +1,6 @@
 {
   "name": "openbluelineeffect",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Takes a video and produces the \"blue line\" effect similar to the TikTok filter.",
   "author": "Syeerus",
   "license": "GPL-3.0",
