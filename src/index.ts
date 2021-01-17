@@ -121,14 +121,14 @@ if (!args.output) {
 try {
     const generator = new BlueLineGenerator({
         input: args.input,
-        output: args.output,
-        ffmpegPath: args.ffmpeg,
-        maxBuffer: args.max_buffer,
-        length: args.length,
-        lineDirection: args.dir,
-        frameCodec: args.codec,
+        output: (Array.isArray(args.output) ? args.output[0] : args.output),
+        ffmpegPath: (args.ffmpeg ? args.ffmpeg[0] : undefined),
+        maxBuffer: (args.max_buffer ? args.max_buffer[0] : undefined),
+        length: (args.length ? args.length[0] : undefined),
+        lineDirection: (args.dir ? args.dir[0] : undefined),
+        frameCodec: (args.codec ? args.codec[0] : undefined),
         lineColor: args.color,
-        fps: args.fps,
+        fps: (args.fps ? args.fps[0] : undefined)
     }, OnError);
 
     generator.Generate();
